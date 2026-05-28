@@ -2,7 +2,7 @@
   "name": "Event Tracker",
   "short_name": "Events",
   "description": "Личный планировщик событий с напоминаниями",
-  "start_url": "/",
+  "start_url": "/GDevent-bot/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
