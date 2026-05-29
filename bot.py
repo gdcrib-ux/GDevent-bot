@@ -21,6 +21,15 @@ PORT = int(os.environ.get("PORT", 8000))
 
 def parse_db_url(url):
     r = urlparse(url)
+    return {
+        "host": r.hostname,
+        "port": r.port or 5432,
+        "database": r.path.lstrip("/"),
+        "user": r.username or "postgres",
+        "password": r.password,
+        "ssl_context": True
+    }
+    r = urlparse(url)
     return {"host": r.hostname, "port": r.port or 5432, "database": r.path[1:],
             "user": r.username, "password": r.password, "ssl_context": True}
 
