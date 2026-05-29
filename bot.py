@@ -23,8 +23,7 @@ PORT = int(os.environ.get("PORT", 8000))
 
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, sslmode='require')
-
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 def init_db():
     with get_db() as conn:
