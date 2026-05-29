@@ -1,45 +1,61 @@
-import os, json, sqlite3, logging, asyncio
+import os, json, logging, asyncio
 from datetime import date, timedelta, datetime
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
 import uvicorn
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = int(os.environ["CHAT_ID"])
 API_KEY = os.environ.get("API_KEY", "changeme")
-DB_PATH = os.environ.get("DB_PATH", "events.db")
+DATABASE_URL = os.environ["DATABASE_URL"]
 PORT = int(os.environ.get("PORT", 8000))
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, sslmode='require')
 
 
 def init_db():
     with get_db() as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS events (
-            id TEXT PRIMARY KEY, title TEXT NOT NULL, date TEXT NOT NULL,
-            time TEXT DEFAULT '', description TEXT DEFAULT '',
-            category TEXT DEFAULT '', priority TEXT DEFAULT 'Средний',
-            contact TEXT DEFAULT '', reminder_time TEXT DEFAULT '09:00')""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY, value TEXT)""")
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    time TEXT DEFAULT '',
+                    description TEXT DEFAULT '',
+                    category TEXT DEFAULT '',
+                    priority TEXT DEFAULT 'Средний',
+                    contact TEXT DEFAULT '',
+                    reminder_time TEXT DEFAULT '09:00'
+                )""")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )""")
+        conn.commit()
+    logging.info("Database initialized")
 
 
 def get_reminder_time():
-    with get_db() as conn:
-        row = conn.execute("SELECT value FROM config WHERE key='reminderTime'").fetchone()
-        return row["value"] if row else "09:00"
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM config WHERE key='reminderTime'")
+                row = cur.fetchone()
+                return row["value"] if row else "09:00"
+    except:
+        return "09:00"
 
 
 def pri_emoji(p):
@@ -76,34 +92,54 @@ class ConfigIn(BaseModel):
 @api.get("/api/events")
 def list_events(_=Depends(auth)):
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events ORDER BY date, time").fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events ORDER BY date, time")
+            rows = cur.fetchall()
     return [dict(r) for r in rows]
 
 
 @api.post("/api/events")
 def create_event(ev: EventIn, _=Depends(auth)):
     with get_db() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO events VALUES (?,?,?,?,?,?,?,?,?)",
-            (ev.id, ev.title, ev.date, ev.time, ev.description,
-             ev.category, ev.priority, ev.contact, ev.reminderTime))
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (id) DO UPDATE SET
+                   title=EXCLUDED.title, date=EXCLUDED.date, time=EXCLUDED.time,
+                   description=EXCLUDED.description, category=EXCLUDED.category,
+                   priority=EXCLUDED.priority, contact=EXCLUDED.contact,
+                   reminder_time=EXCLUDED.reminder_time""",
+                (ev.id, ev.title, ev.date, ev.time, ev.description,
+                 ev.category, ev.priority, ev.contact, ev.reminderTime))
+        conn.commit()
     return ev
 
 
 @api.put("/api/events/{eid}")
 def update_event(eid: str, ev: EventIn, _=Depends(auth)):
     with get_db() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO events VALUES (?,?,?,?,?,?,?,?,?)",
-            (eid, ev.title, ev.date, ev.time, ev.description,
-             ev.category, ev.priority, ev.contact, ev.reminderTime))
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (id) DO UPDATE SET
+                   title=EXCLUDED.title, date=EXCLUDED.date, time=EXCLUDED.time,
+                   description=EXCLUDED.description, category=EXCLUDED.category,
+                   priority=EXCLUDED.priority, contact=EXCLUDED.contact,
+                   reminder_time=EXCLUDED.reminder_time""",
+                (eid, ev.title, ev.date, ev.time, ev.description,
+                 ev.category, ev.priority, ev.contact, ev.reminderTime))
+        conn.commit()
     return ev
 
 
 @api.delete("/api/events/{eid}")
 def delete_event(eid: str, _=Depends(auth)):
     with get_db() as conn:
-        conn.execute("DELETE FROM events WHERE id=?", (eid,))
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM events WHERE id=%s", (eid,))
+        conn.commit()
     return {"deleted": eid}
 
 
@@ -115,7 +151,11 @@ def get_config(_=Depends(auth)):
 @api.put("/api/config")
 def set_config(cfg: ConfigIn, _=Depends(auth)):
     with get_db() as conn:
-        conn.execute("INSERT OR REPLACE INTO config VALUES ('reminderTime',?)", (cfg.reminderTime,))
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO config (key,value) VALUES ('reminderTime',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                (cfg.reminderTime,))
+        conn.commit()
     return cfg
 
 
@@ -134,17 +174,18 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/tomorrow — события завтра\n"
         "/upcoming — ближайшие 7 дней\n"
         "/list — все предстоящие\n\n"
-        "Добавляй события через приложение на телефоне.",
+        "Добавляй события через приложение.",
         parse_mode="Markdown")
 
 
 async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     today_str = date.today().isoformat()
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events WHERE date=? ORDER BY time", (today_str,)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events WHERE date=%s ORDER BY time", (today_str,))
+            rows = cur.fetchall()
     if not rows:
-        await update.message.reply_text("✅ На сегодня событий нет")
-        return
+        await update.message.reply_text("✅ На сегодня событий нет"); return
     lines = [f"🔴 *Сегодня ({date.today().strftime('%d.%m')}):*\n"]
     for r in rows:
         line = f"{pri_emoji(r['priority'])} *{r['title']}*"
@@ -158,7 +199,9 @@ async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_tomorrow(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tom = (date.today() + timedelta(1)).isoformat()
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events WHERE date=? ORDER BY time", (tom,)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events WHERE date=%s ORDER BY time", (tom,))
+            rows = cur.fetchall()
     if not rows:
         await update.message.reply_text("✅ На завтра событий нет"); return
     lines = [f"⚠️ *Завтра ({(date.today()+timedelta(1)).strftime('%d.%m')}):*\n"]
@@ -173,7 +216,9 @@ async def cmd_tomorrow(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     start, end = date.today().isoformat(), (date.today() + timedelta(7)).isoformat()
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events WHERE date BETWEEN ? AND ? ORDER BY date,time", (start, end)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events WHERE date BETWEEN %s AND %s ORDER BY date,time", (start, end))
+            rows = cur.fetchall()
     if not rows:
         await update.message.reply_text("📭 Нет событий на ближайшие 7 дней"); return
     lines = ["📅 *Ближайшие 7 дней:*\n"]
@@ -188,7 +233,9 @@ async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events WHERE date>=? ORDER BY date,time", (date.today().isoformat(),)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events WHERE date>=%s ORDER BY date,time", (date.today().isoformat(),))
+            rows = cur.fetchall()
     if not rows:
         await update.message.reply_text("📭 Нет предстоящих событий"); return
     lines = [f"📋 *Все предстоящие ({len(rows)}):*\n"]
@@ -205,8 +252,11 @@ async def send_daily_reminders(app):
     today_str = date.today().isoformat()
     tomorrow_str = (date.today() + timedelta(1)).isoformat()
     with get_db() as conn:
-        today_evs = conn.execute("SELECT * FROM events WHERE date=? ORDER BY time", (today_str,)).fetchall()
-        tom_evs = conn.execute("SELECT * FROM events WHERE date=? ORDER BY time", (tomorrow_str,)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM events WHERE date=%s ORDER BY time", (today_str,))
+            today_evs = cur.fetchall()
+            cur.execute("SELECT * FROM events WHERE date=%s ORDER BY time", (tomorrow_str,))
+            tom_evs = cur.fetchall()
     if tom_evs:
         lines = [f"⚠️ *Завтра ({(date.today()+timedelta(1)).strftime('%d.%m')}):*\n"]
         for r in tom_evs:
@@ -227,7 +277,6 @@ async def send_daily_reminders(app):
 
 
 async def run_minute_check(app):
-    """Runs every minute, sends reminders when time matches config."""
     current = datetime.now().strftime("%H:%M")
     if current == get_reminder_time():
         await send_daily_reminders(app)
@@ -253,7 +302,6 @@ async def main():
     async with tg_app:
         await tg_app.start()
         await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        logging.info("Bot started. API starting...")
         await server.serve()
         await tg_app.updater.stop()
         await tg_app.stop()
