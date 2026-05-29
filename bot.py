@@ -7,7 +7,10 @@ import uvicorn
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from psycopg2cffi import compat
+compat.register()
 import psycopg2
+from psycopg2.extras import RealDictCursor
 from psycopg2.extras import RealDictCursor
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
