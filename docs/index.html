@@ -332,12 +332,13 @@ function render() {
   renderEvents();
 }
 
-function renderStats() {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const ts = today.toISOString().slice(0,10);
-  const tom = new Date(today); tom.setDate(tom.getDate()+1);
-  const toms = tom.toISOString().slice(0,10);
-  const s = {
+function localDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+const ts = localDate(today);
+const tom = new Date(today); tom.setDate(tom.getDate()+1);
+const toms = localDate(tom);
+const s = {
     today: events.filter(e=>e.date===ts).length,
     tomorrow: events.filter(e=>e.date===toms).length,
     active: events.filter(e=>daysUntil(e.date)>=0).length,
