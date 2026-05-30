@@ -205,6 +205,14 @@ textarea{resize:none;min-height:70px}
     </div>
     <div class="form-row"><label>Контактное лицо</label><input type="text" id="f-contact" placeholder="Имя, компания"></div>
     <div class="form-row"><label>Заметки</label><textarea id="f-desc" placeholder="Дополнительная информация..."></textarea></div>
+    <div class="form-row"><label>Повторение</label>
+      <select id="f-recurrence">
+        <option value="none">Не повторять</option>
+        <option value="weekly">🔁 Еженедельно</option>
+        <option value="monthly">🔁 Ежемесячно</option>
+        <option value="yearly">🔁 Ежегодно</option>
+      </select>
+    </div>
     <div class="form-row"><label>Время напоминания (в день события)</label><input type="time" id="f-reminder"></div>
     <div class="form-btns">
       <button class="btn-cancel" onclick="closeForm()">Отмена</button>
@@ -223,6 +231,7 @@ let filterPri = 'Все';
 const CATS = ['Встреча','Дедлайн','Звонок','Другое'];
 const PRIS = ['Высокий','Средний','Низкий'];
 const PRI_CLR = {Высокий:'#ef4444',Средний:'#f59e0b',Низкий:'#10b981'};
+const REC_LABEL = {weekly:'🔁 Еженедельно',monthly:'🔁 Ежемесячно',yearly:'🔁 Ежегодно'};
 const CAT_EMOJI = {Встреча:'👥',Дедлайн:'⚠️',Звонок:'📞',Другое:'📌'};
 
 function cfg(key) { return localStorage.getItem(key) || ''; }
@@ -416,6 +425,7 @@ function openForm(ev) {
   document.getElementById('f-contact').value = ev ? (ev.contact||'') : '';
   document.getElementById('f-desc').value = ev ? (ev.description||'') : '';
   document.getElementById('f-reminder').value = ev ? (ev.reminder_time||defTime) : defTime;
+  document.getElementById('f-recurrence').value = ev ? (ev.recurrence||'none') : 'none';
   document.getElementById('overlay').classList.add('open');
   setTimeout(() => document.getElementById('f-title').focus(), 100);
 }
@@ -435,7 +445,8 @@ async function saveEvent() {
     priority: document.getElementById('f-pri').value,
     contact: document.getElementById('f-contact').value.trim(),
     description: document.getElementById('f-desc').value.trim(),
-    reminderTime: document.getElementById('f-reminder').value
+    reminderTime: document.getElementById('f-reminder').value,
+    recurrence: document.getElementById('f-recurrence').value
   };
   const btn = document.getElementById('save-btn');
   btn.innerHTML = '<span class="spinner"></span>';
