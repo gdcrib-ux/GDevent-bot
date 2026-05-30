@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -515,7 +514,7 @@ function openForm(ev){
   document.getElementById('f-id').value=ev?ev.id:uid();
   document.getElementById('f-title').value=ev?ev.title:'';
   document.getElementById('f-date').value=ev?ev.date:'';
-  document.getElementById('f-time').value=ev?(ev.time||')':'';
+  document.getElementById('f-time').value=ev?(ev.time||''):'';
   document.getElementById('f-cat').value=ev?ev.category:'Встреча';
   document.getElementById('f-pri').value=ev?ev.priority:'Средний';
   document.getElementById('f-contact').value=ev?(ev.contact||''):'';
