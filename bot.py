@@ -260,7 +260,9 @@ async def send_daily_reminders(app):
 
 
 async def run_minute_check(app):
-    current = datetime.now().strftime("%H:%M")
+    from zoneinfo import ZoneInfo
+    moscow = ZoneInfo("Europe/Moscow")
+    current = datetime.now(moscow).strftime("%H:%M")
     if current == get_reminder_time():
         await send_daily_reminders(app)
 
