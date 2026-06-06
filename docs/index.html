@@ -247,7 +247,16 @@ textarea{resize:none;min-height:70px}
     <button style="margin-top:14px;width:100%;padding:11px;background:var(--blue);color:#fff;border-radius:8px;font-size:14px;font-weight:500" onclick="addEventOnDay()">+ Добавить событие</button>
   </div>
 </div>
-
+<div class="overlay" id="detail-overlay" onclick="closeDetail(event)">
+  <div class="day-sheet" id="detail-content">
+    <h3 id="detail-title"></h3>
+    <div id="detail-body"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button id="detail-edit-btn" style="flex:1;padding:11px;background:var(--surface2);border-radius:8px;font-size:14px;font-weight:500">✏️ Редактировать</button>
+      <button id="detail-del-btn" style="flex:1;padding:11px;background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:14px;font-weight:500">🗑️ Удалить</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -385,7 +394,7 @@ function renderEvents(){
     var con=ev.contact?'<span style="color:var(--text3);font-weight:400"> · '+esc(ev.contact)+'</span>':'';
     return '<div class="ev-item" style="opacity:'+(days<0?.45:1)+'">'+
       '<div class="ev-stripe" style="background:'+(PRI_CLR[ev.priority]||'#64748b')+'"></div>'+
-      '<div class="ev-body">'+
+      '<div class="ev-body" onclick=\'openDetail('+JSON.stringify(ev).replace(/\'/g,"\\'")+')\'  style="cursor:pointer">'+
         '<div class="ev-title">'+(CAT_EMOJI[ev.category]||'📌')+' '+esc(ev.title)+rec+con+'</div>'+
         '<div class="ev-meta"><span>'+fmtDate(ev.date)+(ev.time?' · '+ev.time:'')+'</span>'+(ev.description?'<span style="color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">'+esc(ev.description)+'</span>':'')+'</div>'+
       '</div>'+
@@ -552,7 +561,32 @@ async function saveEvent(){
   btn.innerHTML=document.getElementById('form-title').textContent==='Редактировать событие'?'Сохранить':'Добавить';
   btn.disabled=false;
 }
-
+var detailEv = null;
+function openDetail(ev){
+  detailEv = ev;
+  var PRI_TEXT = {Высокий:'🔺 Высокий',Средний:'🔸 Средний',Низкий:'🔹 Низкий'};
+  var REC_TEXT = {none:'Не повторяется',weekly:'🔁 Еженедельно',monthly:'🔁 Ежемесячно',yearly:'🔁 Ежегодно'};
+  document.getElementById('detail-title').textContent = (CAT_EMOJI[ev.category]||'📌')+' '+ev.title;
+  var rows = [
+    ['📅 Дата', fmtDate(ev.date)+(ev.time?' · '+ev.time:'')],
+    ['🏷️ Категория', ev.category],
+    ['⚡ Приоритет', PRI_TEXT[ev.priority]||ev.priority],
+    ['🔁 Повторение', REC_TEXT[ev.recurrence||'none']],
+  ];
+  if(ev.contact) rows.push(['👤 Контакт', ev.contact]);
+  if(ev.description) rows.push(['📝 Заметки', ev.description]);
+  var h = rows.map(function(r){
+    return '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="font-size:13px;color:var(--text2);flex-shrink:0;width:110px">'+r[0]+'</div>'+
+      '<div style="font-size:13px;color:var(--text);flex:1">'+esc(r[1])+'</div></div>';
+  }).join('');
+  document.getElementById('detail-body').innerHTML = h;
+  document.getElementById('detail-edit-btn').onclick = function(){ closeDetailDirect(); openForm(detailEv); };
+  document.getElementById('detail-del-btn').onclick = function(){ closeDetailDirect(); deleteEvent(detailEv.id); };
+  document.getElementById('detail-overlay').classList.add('open');
+}
+function closeDetail(e){ if(e.target===document.getElementById('detail-overlay')) closeDetailDirect(); }
+function closeDetailDirect(){ document.getElementById('detail-overlay').classList.remove('open'); }
 async function deleteEvent(id){
   if(!confirm('Удалить событие?')) return;
   try{await apiFetch('/api/events/'+id,'DELETE');await loadEvents();toast('🗑️ Удалено');}
