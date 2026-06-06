@@ -247,10 +247,12 @@ textarea{resize:none;min-height:70px}
     <button style="margin-top:14px;width:100%;padding:11px;background:var(--blue);color:#fff;border-radius:8px;font-size:14px;font-weight:500" onclick="addEventOnDay()">+ Добавить событие</button>
   </div>
 </div>
-<div class="overlay" id="detail-overlay" onclick="closeDetail(event)">
+<div class="overlay" id="detail-overlay">
   <div class="day-sheet" id="detail-content">
-    <h3 id="detail-title"></h3>
-    <div id="detail-body"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 id="detail-title" style="margin:0"></h3>
+      <button onclick="closeDetailDirect()" style="width:32px;height:32px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">×</button>
+    </div>    <div id="detail-body"></div>
     <div style="display:flex;gap:10px;margin-top:16px">
       <button id="detail-edit-btn" style="flex:1;padding:11px;background:var(--surface2);border-radius:8px;font-size:14px;font-weight:500">✏️ Редактировать</button>
       <button id="detail-del-btn" style="flex:1;padding:11px;background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:14px;font-weight:500">🗑️ Удалить</button>
@@ -585,7 +587,7 @@ function openDetail(ev){
   document.getElementById('detail-del-btn').onclick = function(){ closeDetailDirect(); deleteEvent(detailEv.id); };
   document.getElementById('detail-overlay').classList.add('open');
 }
-function closeDetail(e){ if(e.target===document.getElementById('detail-overlay')) closeDetailDirect(); }
+
 function closeDetailDirect(){ document.getElementById('detail-overlay').classList.remove('open'); }
 async function deleteEvent(id){
   if(!confirm('Удалить событие?')) return;
