@@ -396,7 +396,7 @@ function renderEvents(){
     var con=ev.contact?'<span style="color:var(--text3);font-weight:400"> · '+esc(ev.contact)+'</span>':'';
     return '<div class="ev-item" style="opacity:'+(days<0?.45:1)+'">'+
       '<div class="ev-stripe" style="background:'+(PRI_CLR[ev.priority]||'#64748b')+'"></div>'+
-      '<div class="ev-body" onclick=\'openDetail('+JSON.stringify(ev).replace(/\'/g,"\\'")+')\'  style="cursor:pointer">'+
+      '<div class="ev-body" onclick=\'openDetail(history.pushState(null,'');'+JSON.stringify(ev).replace(/\'/g,"\\'")+')\'  style="cursor:pointer">'+
         '<div class="ev-title">'+(CAT_EMOJI[ev.category]||'📌')+' '+esc(ev.title)+rec+con+'</div>'+
         '<div class="ev-meta"><span>'+fmtDate(ev.date)+(ev.time?' · '+ev.time:'')+'</span>'+(ev.description?'<span style="color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">'+esc(ev.description)+'</span>':'')+'</div>'+
       '</div>'+
@@ -594,7 +594,18 @@ async function deleteEvent(id){
   try{await apiFetch('/api/events/'+id,'DELETE');await loadEvents();toast('🗑️ Удалено');}
   catch(e){toast('❌ Ошибка');}
 }
-
+window.addEventListener('popstate', function() {
+  if(document.getElementById('detail-overlay').classList.contains('open')){
+    closeDetailDirect(); history.pushState(null,''); return;
+  }
+  if(document.getElementById('overlay').classList.contains('open')){
+    closeForm(); history.pushState(null,''); return;
+  }
+  if(document.getElementById('day-overlay').classList.contains('open')){
+    document.getElementById('day-overlay').classList.remove('open'); history.pushState(null,''); return;
+  }
+  history.pushState(null,'');
+});
 init();
 </script>
 </body>
