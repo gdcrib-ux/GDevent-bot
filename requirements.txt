@@ -4,4 +4,3 @@ fastapi==0.115.0
 uvicorn==0.30.6
 pydantic==2.8.2
 psycopg2-binary==2.9.9
-httpx==0.25.2
