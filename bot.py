@@ -7,7 +7,7 @@ import uvicorn
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import pg8000.native
+import psycopg2
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -30,8 +30,7 @@ def parse_db_url(url):
 
 
 def get_db():
-    return pg8000.native.Connection(**parse_db_url(DATABASE_URL))
-
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     conn = get_db()
