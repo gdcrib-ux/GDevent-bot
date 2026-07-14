@@ -4,9 +4,9 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import Bot
+from telegram.ext import Updater, CommandHandler
+from apscheduler.schedulers.background import BackgroundScheduler
 import psycopg2
 import psycopg2.extras
 from zoneinfo import ZoneInfo
@@ -19,6 +19,8 @@ API_KEY = os.environ.get("API_KEY", "changeme")
 DATABASE_URL = os.environ["DATABASE_URL"]
 PORT = int(os.environ.get("PORT", 8000))
 MOSCOW = ZoneInfo("Europe/Moscow")
+
+bot = Bot(token=BOT_TOKEN)
 
 
 def get_db():
@@ -210,39 +212,39 @@ def format_event_line(r, show_recurrence=True):
     return line
 
 
-async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 *Event Tracker Bot*\n\nКоманды:\n/today — события сегодня\n/tomorrow — события завтра\n/upcoming — ближайшие 7 дней\n/list — все предстоящие\n\nДобавляй события через приложение.",
+def cmd_start(update, ctx):
+    update.message.reply_text(
+        "👋 *Event Tracker Bot*\n\nКоманды:\n/today — события сегодня\n/tomorrow — события завтра\n/upcoming — ближайшие 7 дней\n/list — все предстоящие",
         parse_mode="Markdown")
 
 
-async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+def cmd_today(update, ctx):
     evs = get_events_for_date(date.today())
     if not evs:
-        await update.message.reply_text("✅ На сегодня событий нет"); return
+        update.message.reply_text("✅ На сегодня событий нет"); return
     lines = [f"🔴 *Сегодня ({date.today().strftime('%d.%m')}):*\n"]
     for r in evs:
         line = format_event_line(r)
         if r["contact"]: line += f"\n   👤 {r['contact']}"
         if r["description"]: line += f"\n   📝 {r['description']}"
         lines.append(line)
-    await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+    update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
 
 
-async def cmd_tomorrow(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+def cmd_tomorrow(update, ctx):
     tom = date.today() + timedelta(1)
     evs = get_events_for_date(tom)
     if not evs:
-        await update.message.reply_text("✅ На завтра событий нет"); return
+        update.message.reply_text("✅ На завтра событий нет"); return
     lines = [f"⚠️ *Завтра ({tom.strftime('%d.%m')}):*\n"]
     for r in evs:
         line = format_event_line(r)
         if r["contact"]: line += f" · {r['contact']}"
         lines.append(line)
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
-async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+def cmd_upcoming(update, ctx):
     lines = ["📅 *Ближайшие 7 дней:*\n"]
     found = False
     for i in range(8):
@@ -250,16 +252,14 @@ async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         evs = get_events_for_date(d)
         for r in evs:
             found = True
-            days = i
-            label = "Сегодня" if days == 0 else ("Завтра" if days == 1 else f"+{days} дн.")
-            line = f"[{label}] {format_event_line(r)}"
-            lines.append(line)
+            label = "Сегодня" if i == 0 else ("Завтра" if i == 1 else f"+{i} дн.")
+            lines.append(f"[{label}] {format_event_line(r)}")
     if not found:
-        await update.message.reply_text("📭 Нет событий на ближайшие 7 дней"); return
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        update.message.reply_text("📭 Нет событий на ближайшие 7 дней"); return
+    update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
-async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+def cmd_list(update, ctx):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM events ORDER BY date,time")
@@ -268,17 +268,17 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     conn.close()
     evs = [dict(r) for r in rows]
     if not evs:
-        await update.message.reply_text("📭 Нет событий"); return
+        update.message.reply_text("📭 Нет событий"); return
     lines = [f"📋 *Все события ({len(evs)}):*\n"]
     for r in evs:
         rec = recurrence_label(r.get("recurrence","none"))
         line = f"{pri_emoji(r['priority'])} *{r['title']}* — {r['date']}"
         if rec: line += f" {rec}"
         lines.append(line)
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
-async def send_daily_reminders(app):
+def send_daily_reminders():
     today = date.today()
     tomorrow = today + timedelta(1)
     today_evs = get_events_for_date(today)
@@ -289,7 +289,7 @@ async def send_daily_reminders(app):
             line = format_event_line(r)
             if r["contact"]: line += f" · {r['contact']}"
             lines.append(line)
-        await app.bot.send_message(chat_id=CHAT_ID, text="\n".join(lines), parse_mode="Markdown")
+        bot.send_message(chat_id=CHAT_ID, text="\n".join(lines), parse_mode="Markdown")
     if today_evs:
         lines = [f"🔴 *Сегодня ({today.strftime('%d.%m')}):*\n"]
         for r in today_evs:
@@ -297,35 +297,34 @@ async def send_daily_reminders(app):
             if r["contact"]: line += f" · {r['contact']}"
             if r["description"]: line += f"\n   📝 {r['description']}"
             lines.append(line)
-        await app.bot.send_message(chat_id=CHAT_ID, text="\n\n".join(lines), parse_mode="Markdown")
+        bot.send_message(chat_id=CHAT_ID, text="\n\n".join(lines), parse_mode="Markdown")
 
 
-async def run_minute_check(app):
+def minute_check():
     current = datetime.now(MOSCOW).strftime("%H:%M")
     if current == get_reminder_time():
-        await send_daily_reminders(app)
+        send_daily_reminders()
 
 
-async def main():
+def main():
     init_db()
     logging.info(f"Starting on port {PORT}")
-    tg_app = Application.builder().token(BOT_TOKEN).build()
-    tg_app.add_handler(CommandHandler("start", cmd_start))
-    tg_app.add_handler(CommandHandler("today", cmd_today))
-    tg_app.add_handler(CommandHandler("tomorrow", cmd_tomorrow))
-    tg_app.add_handler(CommandHandler("upcoming", cmd_upcoming))
-    tg_app.add_handler(CommandHandler("list", cmd_list))
-    scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(run_minute_check, "cron", minute="*", args=[tg_app])
+
+    updater = Updater(token=BOT_TOKEN)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", cmd_start))
+    dp.add_handler(CommandHandler("today", cmd_today))
+    dp.add_handler(CommandHandler("tomorrow", cmd_tomorrow))
+    dp.add_handler(CommandHandler("upcoming", cmd_upcoming))
+    dp.add_handler(CommandHandler("list", cmd_list))
+    updater.start_polling()
+
+    scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(minute_check, "cron", minute="*")
     scheduler.start()
-    server = uvicorn.Server(uvicorn.Config(api, host="0.0.0.0", port=PORT, log_level="warning"))
-    async with tg_app:
-        await tg_app.start()
-        await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        await server.serve()
-        await tg_app.updater.stop()
-        await tg_app.stop()
+
+    uvicorn.run(api, host="0.0.0.0", port=PORT, log_level="warning")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
