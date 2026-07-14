@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import psycopg2
-from urllib.parse import urlparse
+import psycopg2.extras
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -21,32 +21,27 @@ PORT = int(os.environ.get("PORT", 8000))
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
-def parse_db_url(url):
-    r = urlparse(url)
-    return {"host": r.hostname, "port": r.port or 5432,
-            "database": r.path.lstrip("/"),
-            "user": r.username or "postgres",
-            "password": r.password, "ssl_context": True}
-
-
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
+
 def init_db():
     conn = get_db()
-    conn.run("""CREATE TABLE IF NOT EXISTS events (
+    cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS events (
         id TEXT PRIMARY KEY, title TEXT NOT NULL, date TEXT NOT NULL,
         time TEXT DEFAULT '', description TEXT DEFAULT '',
         category TEXT DEFAULT '', priority TEXT DEFAULT 'Средний',
         contact TEXT DEFAULT '', reminder_time TEXT DEFAULT '09:00',
         recurrence TEXT DEFAULT 'none')""")
-    # Add recurrence column if missing (for existing databases)
     try:
-        conn.run("ALTER TABLE events ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'none'")
+        cur.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'none'")
     except:
         pass
-    conn.run("""CREATE TABLE IF NOT EXISTS config (
+    cur.execute("""CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY, value TEXT)""")
+    conn.commit()
+    cur.close()
     conn.close()
     logging.info("Database initialized")
 
@@ -54,15 +49,14 @@ def init_db():
 def get_reminder_time():
     try:
         conn = get_db()
-        rows = conn.run("SELECT value FROM config WHERE key='reminderTime'")
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM config WHERE key='reminderTime'")
+        row = cur.fetchone()
+        cur.close()
         conn.close()
-        return rows[0][0] if rows else "09:00"
+        return row[0] if row else "09:00"
     except:
         return "09:00"
-
-
-def row_to_dict(row, keys):
-    return dict(zip(keys, row))
 
 
 EVENT_KEYS = ["id","title","date","time","description","category","priority","contact","reminder_time","recurrence"]
@@ -77,7 +71,6 @@ def recurrence_label(r):
 
 
 def matches_recurrence(ev_date_str, recurrence, check_date):
-    """Check if check_date matches the recurrence pattern of ev_date_str"""
     try:
         ev_date = date.fromisoformat(ev_date_str)
     except:
@@ -92,17 +85,18 @@ def matches_recurrence(ev_date_str, recurrence, check_date):
 
 
 def get_events_for_date(check_date):
-    """Get all events (one-time + recurring) that fall on check_date"""
     conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     date_str = check_date.isoformat()
-    # One-time events on this exact date
-    one_time = conn.run("SELECT * FROM events WHERE date=:d AND recurrence='none' ORDER BY time", d=date_str)
-    # All recurring events
-    recurring_all = conn.run("SELECT * FROM events WHERE recurrence != 'none' ORDER BY time")
+    cur.execute("SELECT * FROM events WHERE date=%s AND recurrence='none' ORDER BY time", (date_str,))
+    one_time = cur.fetchall()
+    cur.execute("SELECT * FROM events WHERE recurrence != 'none' ORDER BY time")
+    recurring_all = cur.fetchall()
+    cur.close()
     conn.close()
-    result = [row_to_dict(r, EVENT_KEYS) for r in one_time]
+    result = [dict(r) for r in one_time]
     for r in recurring_all:
-        ev = row_to_dict(r, EVENT_KEYS)
+        ev = dict(r)
         if matches_recurrence(ev["date"], ev["recurrence"], check_date):
             result.append(ev)
     return sorted(result, key=lambda x: x["time"] or "")
@@ -132,22 +126,27 @@ class ConfigIn(BaseModel):
 @api.get("/api/events")
 def list_events(_=Depends(auth)):
     conn = get_db()
-    rows = conn.run("SELECT * FROM events ORDER BY date, time")
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM events ORDER BY date, time")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
-    return [row_to_dict(r, EVENT_KEYS) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @api.post("/api/events")
 def create_event(ev: EventIn, _=Depends(auth)):
     conn = get_db()
-    conn.run("""INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time,recurrence)
-               VALUES (:id,:title,:date,:time,:desc,:cat,:pri,:contact,:rt,:rec)
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time,recurrence)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,date=EXCLUDED.date,
                time=EXCLUDED.time,description=EXCLUDED.description,category=EXCLUDED.category,
                priority=EXCLUDED.priority,contact=EXCLUDED.contact,
                reminder_time=EXCLUDED.reminder_time,recurrence=EXCLUDED.recurrence""",
-               id=ev.id,title=ev.title,date=ev.date,time=ev.time,desc=ev.description,
-               cat=ev.category,pri=ev.priority,contact=ev.contact,rt=ev.reminderTime,rec=ev.recurrence)
+               (ev.id,ev.title,ev.date,ev.time,ev.description,ev.category,ev.priority,ev.contact,ev.reminderTime,ev.recurrence))
+    conn.commit()
+    cur.close()
     conn.close()
     return ev
 
@@ -155,14 +154,16 @@ def create_event(ev: EventIn, _=Depends(auth)):
 @api.put("/api/events/{eid}")
 def update_event(eid: str, ev: EventIn, _=Depends(auth)):
     conn = get_db()
-    conn.run("""INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time,recurrence)
-               VALUES (:id,:title,:date,:time,:desc,:cat,:pri,:contact,:rt,:rec)
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO events (id,title,date,time,description,category,priority,contact,reminder_time,recurrence)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,date=EXCLUDED.date,
                time=EXCLUDED.time,description=EXCLUDED.description,category=EXCLUDED.category,
                priority=EXCLUDED.priority,contact=EXCLUDED.contact,
                reminder_time=EXCLUDED.reminder_time,recurrence=EXCLUDED.recurrence""",
-               id=eid,title=ev.title,date=ev.date,time=ev.time,desc=ev.description,
-               cat=ev.category,pri=ev.priority,contact=ev.contact,rt=ev.reminderTime,rec=ev.recurrence)
+               (eid,ev.title,ev.date,ev.time,ev.description,ev.category,ev.priority,ev.contact,ev.reminderTime,ev.recurrence))
+    conn.commit()
+    cur.close()
     conn.close()
     return ev
 
@@ -170,7 +171,10 @@ def update_event(eid: str, ev: EventIn, _=Depends(auth)):
 @api.delete("/api/events/{eid}")
 def delete_event(eid: str, _=Depends(auth)):
     conn = get_db()
-    conn.run("DELETE FROM events WHERE id=:id", id=eid)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM events WHERE id=%s", (eid,))
+    conn.commit()
+    cur.close()
     conn.close()
     return {"deleted": eid}
 
@@ -183,7 +187,10 @@ def get_config(_=Depends(auth)):
 @api.put("/api/config")
 def set_config(cfg: ConfigIn, _=Depends(auth)):
     conn = get_db()
-    conn.run("INSERT INTO config (key,value) VALUES ('reminderTime',:v) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", v=cfg.reminderTime)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO config (key,value) VALUES ('reminderTime',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (cfg.reminderTime,))
+    conn.commit()
+    cur.close()
     conn.close()
     return cfg
 
@@ -254,9 +261,12 @@ async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
-    rows = conn.run("SELECT * FROM events ORDER BY date,time")
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM events ORDER BY date,time")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
-    evs = [row_to_dict(r, EVENT_KEYS) for r in rows]
+    evs = [dict(r) for r in rows]
     if not evs:
         await update.message.reply_text("📭 Нет событий"); return
     lines = [f"📋 *Все события ({len(evs)}):*\n"]
