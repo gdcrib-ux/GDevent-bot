@@ -525,7 +525,12 @@ function renderEvents(){
 var filtered=events
 .filter(function(e){return filterCat==='Все'||e.category===filterCat;})
 .filter(function(e){return filterPri==='Все'||e.priority===filterPri;})
-.sort(function(a,b){return a.date.localeCompare(b.date);});
+.sort(function(a,b){
+var da=daysUntil(a.date), db=daysUntil(b.date);
+var ap=da>=0?0:1, bp=db>=0?0:1;
+if(ap!==bp) return ap-bp;
+return a.date.localeCompare(b.date);
+});
 var el=document.getElementById('events-list');
 if(!filtered.length){
 el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><p>'+(filterCat!=='Все'||filterPri!=='Все'?'Нет событий по фильтрам':'Нет событий.<br>Нажми + чтобы добавить')+'</p></div>';
