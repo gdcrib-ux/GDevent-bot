@@ -418,7 +418,12 @@ var now=new Date();
 var todayStr=localDate(now);
 var tomStr=localDate(new Date(now.getFullYear(),now.getMonth(),now.getDate()+1));
 document.getElementById('today-date').textContent=WEEKDAYS[now.getDay()]+', '+now.getDate()+' '+MONTHS_GEN[now.getMonth()];
-var todayEvs=events.filter(function(e){return e.date===todayStr;}).sort(function(a,b){return (a.time||'').localeCompare(b.time||'');});
+var todayEvs=events.filter(function(e){return e.date===todayStr;}).sort(function(a,b){
+var da=daysUntil(a.date), db=daysUntil(b.date);
+var ap=da>=0?0:1, bp=db>=0?0:1;
+if(ap!==bp) return ap-bp;
+return a.date.localeCompare(b.date);
+});
 var tomEvs=events.filter(function(e){return e.date===tomStr;}).sort(function(a,b){return (a.time||'').localeCompare(b.time||'');});
 var count=todayEvs.length;
 document.getElementById('today-title').textContent=count===0?'Свободный день 🎉':count===1?'1 событие':count<5?count+' события':count+' событий';
