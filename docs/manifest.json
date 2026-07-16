@@ -1,6 +1,6 @@
 {
-  "name": "Event Tracker",
-  "short_name": "Events",
+  "name": "GDEvents",
+  "short_name": "GDEvents",
   "description": "Личный планировщик событий с напоминаниями",
   "start_url": "/GDevent-bot/",
   "display": "standalone",
