@@ -341,19 +341,26 @@ if(!r.ok) throw new Error(r.status);
 return r.json();
 }
 
-async function loadEvents(){
-  var attempts = 3;
-  for(var i = 0; i < attempts; i++){
-    try{
-      events = await apiFetch('/api/events');
-      localStorage.setItem('ev_cache', JSON.stringify(events));
-      render();
-      return;
-    } catch(e){
-      if(i < attempts - 1){
-        await new Promise(function(r){ setTimeout(r, 3000); });
-      }
-    }
+function loadEvents(){
+var attempts=3;
+var tryLoad=function(i){
+apiFetch('/api/events').then(function(data){
+events=data;
+localStorage.setItem('ev_cache',JSON.stringify(events));
+render();
+}).catch(function(){
+if(i<attempts-1){
+setTimeout(function(){ tryLoad(i+1); },3000);
+} else {
+var c=localStorage.getItem('ev_cache');
+events=c?JSON.parse(c):[];
+render();
+showToast('⚠️ Нет связи с сервером');
+}
+});
+};
+tryLoad(0);
+}    }
   }
   var c = localStorage.getItem('ev_cache');
   events = c ? JSON.parse(c) : [];
