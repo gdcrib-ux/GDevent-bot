@@ -342,14 +342,24 @@ return r.json();
 }
 
 async function loadEvents(){
-try{
-events=await apiFetch('/api/events');
-localStorage.setItem('ev_cache',JSON.stringify(events));
-}catch(e){
-var c=localStorage.getItem('ev_cache');
-events=c?JSON.parse(c):[];
-}
-render();
+  var attempts = 3;
+  for(var i = 0; i < attempts; i++){
+    try{
+      events = await apiFetch('/api/events');
+      localStorage.setItem('ev_cache', JSON.stringify(events));
+      render();
+      return;
+    } catch(e){
+      if(i < attempts - 1){
+        await new Promise(function(r){ setTimeout(r, 3000); });
+      }
+    }
+  }
+  var c = localStorage.getItem('ev_cache');
+  events = c ? JSON.parse(c) : [];
+  render();
+  showToast('⚠️ Нет связи с сервером');
+}render();
 }
 
 function showScreen(id){
