@@ -8,9 +8,17 @@ API_URL = os.environ['API_URL'].rstrip('/')
 API_KEY = os.environ['API_KEY']
 
 def get_events():
-    r = requests.get(f'{API_URL}/api/events', headers={'X-API-Key': API_KEY})
-    return r.json()
-
+    try:
+        r = requests.get(f'{API_URL}/api/events', 
+                        headers={'X-API-Key': API_KEY},
+                        timeout=60)
+        data = r.json()
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception as e:
+        print(f'Error getting events: {e}')
+        return []
 def send(text):
     requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
         json={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'})
