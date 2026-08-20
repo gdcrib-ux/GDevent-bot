@@ -28,15 +28,13 @@ def pri_emoji(p):
 
 def main():
     events = get_events()
-send('✅ Reminder script работает!')
-    today = date.today()
-    tomorrow = today + timedelta(1)
-    today_str = today.isoformat()
-    tom_str = tomorrow.isoformat()
 
-    today_evs = [e for e in events if e['date'] == today_str]
-    tom_evs = [e for e in events if e['date'] == tom_str]
-
+def send(text):
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}
+    print(f'Sending to {CHAT_ID}...')
+    r = requests.post(url, json=payload)
+    print(f'Response: {r.status_code} - {r.text}')
     if tom_evs:
         lines = [f"⚠️ *Завтра ({tomorrow.strftime('%d.%m')}):*\n"]
         for e in tom_evs:
