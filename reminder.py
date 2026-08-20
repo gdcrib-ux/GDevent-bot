@@ -9,7 +9,7 @@ API_KEY = os.environ['API_KEY']
 
 def get_events():
     try:
-        r = requests.get(f'{API_URL}/api/events', 
+        r = requests.get(f'{API_URL}/api/events',
                         headers={'X-API-Key': API_KEY},
                         timeout=60)
         data = r.json()
@@ -19,40 +19,51 @@ def get_events():
     except Exception as e:
         print(f'Error getting events: {e}')
         return []
+
 def send(text):
-    requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-        json={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'})
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}
+    print(f'Sending to chat {CHAT_ID}...')
+    r = requests.post(url, json=payload)
+    print(f'Response: {r.status_code} - {r.text}')
 
 def pri_emoji(p):
     return {'Высокий': '🔺', 'Средний': '🔸', 'Низкий': '🔹'}.get(p, '•')
 
 def main():
     events = get_events()
+    print(f'Got {len(events)} events')
 
-def send(text):
-    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
-    payload = {'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}
-    print(f'Sending to {CHAT_ID}...')
-    r = requests.post(url, json=payload)
-    print(f'Response: {r.status_code} - {r.text}')
+    send('Test: reminder script works!')
+
+    today = date.today()
+    tomorrow = today + timedelta(1)
+    today_str = today.isoformat()
+    tom_str = tomorrow.isoformat()
+
+    today_evs = [e for e in events if e['date'] == today_str]
+    tom_evs = [e for e in events if e['date'] == tom_str]
+
+    print(f'Today: {len(today_evs)}, Tomorrow: {len(tom_evs)}')
+
     if tom_evs:
-        lines = [f"⚠️ *Завтра ({tomorrow.strftime('%d.%m')}):*\n"]
+        lines = [f"Завтра ({tomorrow.strftime('%d.%m')}):\n"]
         for e in tom_evs:
-            line = f"{pri_emoji(e['priority'])} *{e['title']}*"
-            if e['time']: line += f" · {e['time']}"
-            if e['contact']: line += f" · {e['contact']}"
+            line = f"{pri_emoji(e['priority'])} {e['title']}"
+            if e['time']: line += f" - {e['time']}"
+            if e['contact']: line += f" - {e['contact']}"
             lines.append(line)
         send('\n'.join(lines))
 
     if today_evs:
-        lines = [f"🔴 *Сегодня ({today.strftime('%d.%m')}):*\n"]
+        lines = [f"Сегодня ({today.strftime('%d.%m')}):\n"]
         for e in today_evs:
-            line = f"{pri_emoji(e['priority'])} *{e['title']}*"
-            if e['time']: line += f"\n   🕐 {e['time']}"
-            if e['contact']: line += f"\n   👤 {e['contact']}"
-            if e['description']: line += f"\n   📝 {e['description']}"
+            line = f"{pri_emoji(e['priority'])} {e['title']}"
+            if e['time']: line += f" - {e['time']}"
+            if e['contact']: line += f" - {e['contact']}"
+            if e['description']: line += f" - {e['description']}"
             lines.append(line)
-        send('\n\n'.join(lines))
+        send('\n'.join(lines))
 
 if __name__ == '__main__':
     main()
