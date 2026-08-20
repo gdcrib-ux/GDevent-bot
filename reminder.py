@@ -34,7 +34,6 @@ def main():
     events = get_events()
     print(f'Got {len(events)} events')
 
-    send('Test: reminder script works!')
 
     today = date.today()
     tomorrow = today + timedelta(1)
