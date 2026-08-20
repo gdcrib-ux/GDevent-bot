@@ -28,6 +28,7 @@ def pri_emoji(p):
 
 def main():
     events = get_events()
+send('✅ Reminder script работает!')
     today = date.today()
     tomorrow = today + timedelta(1)
     today_str = today.isoformat()
