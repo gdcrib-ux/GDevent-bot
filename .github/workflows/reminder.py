@@ -1,0 +1,51 @@
+import os
+import requests
+from datetime import date, timedelta
+
+BOT_TOKEN = os.environ['BOT_TOKEN']
+CHAT_ID = os.environ['CHAT_ID']
+API_URL = os.environ['API_URL'].rstrip('/')
+API_KEY = os.environ['API_KEY']
+
+def get_events():
+    r = requests.get(f'{API_URL}/api/events', headers={'X-API-Key': API_KEY})
+    return r.json()
+
+def send(text):
+    requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+        json={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'Markdown'})
+
+def pri_emoji(p):
+    return {'Высокий': '🔺', 'Средний': '🔸', 'Низкий': '🔹'}.get(p, '•')
+
+def main():
+    events = get_events()
+    today = date.today()
+    tomorrow = today + timedelta(1)
+    today_str = today.isoformat()
+    tom_str = tomorrow.isoformat()
+
+    today_evs = [e for e in events if e['date'] == today_str]
+    tom_evs = [e for e in events if e['date'] == tom_str]
+
+    if tom_evs:
+        lines = [f"⚠️ *Завтра ({tomorrow.strftime('%d.%m')}):*\n"]
+        for e in tom_evs:
+            line = f"{pri_emoji(e['priority'])} *{e['title']}*"
+            if e['time']: line += f" · {e['time']}"
+            if e['contact']: line += f" · {e['contact']}"
+            lines.append(line)
+        send('\n'.join(lines))
+
+    if today_evs:
+        lines = [f"🔴 *Сегодня ({today.strftime('%d.%m')}):*\n"]
+        for e in today_evs:
+            line = f"{pri_emoji(e['priority'])} *{e['title']}*"
+            if e['time']: line += f"\n   🕐 {e['time']}"
+            if e['contact']: line += f"\n   👤 {e['contact']}"
+            if e['description']: line += f"\n   📝 {e['description']}"
+            lines.append(line)
+        send('\n\n'.join(lines))
+
+if __name__ == '__main__':
+    main()
